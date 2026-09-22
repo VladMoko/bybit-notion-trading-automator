@@ -279,7 +279,7 @@ def create_cycle_summary(state: dict[str, Any], accounted: AccountedExecution) -
     fees = Decimal(state["cycle_fees_usdt"])
     cycle_profit = Decimal(state["cycle_profit_usdt"])
     contributions = confirmed_cashflow_total()
-    total_profit = Decimal(os.getenv("BASE_REALIZED_PROFIT_USDT", "198.229824")) + Decimal(
+    total_profit = Decimal(os.getenv("BASE_REALIZED_PROFIT_USDT", "0")) + Decimal(
         state["realized_profit_since_automation"]
     )
     balance = contributions + total_profit
@@ -422,8 +422,8 @@ def confirmed_cashflow_total() -> Decimal:
 
 def dashboard_values(state: dict[str, Any], contributions: Decimal | None = None) -> dict[str, str]:
     if contributions is None:
-        contributions = Decimal(os.getenv("BASE_CONTRIBUTIONS_USDT", "1795.86"))
-    base_profit = Decimal(os.getenv("BASE_REALIZED_PROFIT_USDT", "198.229824"))
+        contributions = Decimal(os.getenv("BASE_CONTRIBUTIONS_USDT", "0"))
+    base_profit = Decimal(os.getenv("BASE_REALIZED_PROFIT_USDT", "0"))
     new_profit = Decimal(state["realized_profit_since_automation"])
     profit = base_profit + new_profit
     balance = contributions + profit
@@ -443,7 +443,7 @@ def update_dashboard(state: dict[str, Any]) -> None:
         contributions = confirmed_cashflow_total()
         print(f"Підтверджений рух власних коштів: {format_ua(contributions, 2)} USDT")
     else:
-        contributions = Decimal(os.getenv("BASE_CONTRIBUTIONS_USDT", "1795.86"))
+        contributions = Decimal(os.getenv("BASE_CONTRIBUTIONS_USDT", "0"))
         print("CASHFLOW_ENABLED=false: використано BASE_CONTRIBUTIONS_USDT.")
     values = dashboard_values(state, contributions)
     print("Панель:", json.dumps(values, ensure_ascii=False))
@@ -484,6 +484,41 @@ def fetch_cashflow_records(session: HTTP) -> list[dict[str, Any]]:
             timestamp = row.get("successAt") or row.get("updateTime") or row.get("createTime")
             when = datetime.fromtimestamp(int(timestamp) / 1000, tz=timezone.utc).isoformat() if timestamp else datetime.now(timezone.utc).isoformat()
             records.append({"id": f"{kind}:{record_id}", "kind": kind, "amount": amount, "fee": fee, "date": when})
+
+    # P2P purchases normally arrive in Funding first. Moving USDT into Unified
+    # is the point at which it becomes trading capital. Track both directions
+    # so moving the same money back to Funding reverses the contribution.
+    if env_bool("BYBIT_INTERNAL_TRANSFERS_ENABLED", True):
+        response = session.get_internal_transfer_records(coin="USDT", limit=50)
+        if response.get("retCode") != 0:
+            raise RuntimeError(f"Bybit internal transfer API: {response.get('retMsg')}")
+        for row in response.get("result", {}).get("list", []):
+            if str(row.get("status", "")).upper() != "SUCCESS":
+                continue
+            from_account = str(row.get("fromAccountType", "")).upper()
+            to_account = str(row.get("toAccountType", "")).upper()
+            if (from_account, to_account) == ("FUND", "UNIFIED"):
+                kind = "deposit"
+            elif (from_account, to_account) == ("UNIFIED", "FUND"):
+                kind = "withdrawal"
+            else:
+                continue
+            transfer_id = str(row.get("transferId", ""))
+            if not transfer_id:
+                continue
+            timestamp = row.get("timestamp")
+            when = (
+                datetime.fromtimestamp(int(timestamp) / 1000, tz=timezone.utc).isoformat()
+                if timestamp else datetime.now(timezone.utc).isoformat()
+            )
+            records.append({
+                "id": f"internal:{transfer_id}",
+                "kind": kind,
+                "amount": Decimal(str(row.get("amount", "0"))),
+                "fee": Decimal("0"),
+                "date": when,
+                "note": f"Bybit {from_account} → {to_account}",
+            })
     return records
 
 
@@ -500,7 +535,7 @@ def write_cashflow(record: dict[str, Any]) -> None:
         "Сума USDT": {"number": float(amount)},
         "Статус": {"select": {"name": "Підтверджено"}},
         "Вплив на баланс USDT": {"number": float(impact)},
-        "Примітка": {"rich_text": [{"text": {"content": f"Автоматично імпортовано з Bybit. ID: {record['id']}"}}]},
+        "Примітка": {"rich_text": [{"text": {"content": f"{record.get('note', 'Автоматично імпортовано з Bybit')}. ID: {record['id']}"}}]},
     })
 
 
@@ -602,7 +637,7 @@ def main() -> int:
             if accounted.status == "CLOSED":
                 set_notion_status(state["open_notion_page_ids"], "CLOSED")
                 cycle_page_id = create_cycle_summary(state, accounted)
-                cumulative = Decimal(os.getenv("BASE_REALIZED_PROFIT_USDT", "198.229824")) + Decimal(
+                cumulative = Decimal(os.getenv("BASE_REALIZED_PROFIT_USDT", "0")) + Decimal(
                     state["realized_profit_since_automation"]
                 )
                 upsert_weekly_report(
