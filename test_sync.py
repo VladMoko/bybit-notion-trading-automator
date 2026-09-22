@@ -1,10 +1,62 @@
 import unittest
 from decimal import Decimal
 
-from sync import Execution, account_execution, normalize
+from sync import Execution, account_execution, fetch_cashflow_records, normalize
+
+
+class CashflowSession:
+    def get_deposit_records(self, **kwargs):
+        return {"retCode": 0, "result": {"rows": []}}
+
+    def get_withdrawal_records(self, **kwargs):
+        return {"retCode": 0, "result": {"rows": []}}
+
+    def get_internal_transfer_records(self, **kwargs):
+        return {
+            "retCode": 0,
+            "result": {
+                "list": [
+                    {
+                        "transferId": "p2p-to-trading",
+                        "coin": "USDT",
+                        "amount": "1000",
+                        "fromAccountType": "FUND",
+                        "toAccountType": "UNIFIED",
+                        "timestamp": "1790064000000",
+                        "status": "SUCCESS",
+                    },
+                    {
+                        "transferId": "trading-to-funding",
+                        "coin": "USDT",
+                        "amount": "25",
+                        "fromAccountType": "UNIFIED",
+                        "toAccountType": "FUND",
+                        "timestamp": "1790067600000",
+                        "status": "SUCCESS",
+                    },
+                    {
+                        "transferId": "ignored-direction",
+                        "coin": "USDT",
+                        "amount": "5",
+                        "fromAccountType": "FUND",
+                        "toAccountType": "SPOT",
+                        "timestamp": "1790067600000",
+                        "status": "SUCCESS",
+                    },
+                ]
+            },
+        }
 
 
 class NormalizeTests(unittest.TestCase):
+    def test_internal_transfers_are_owner_cashflow(self):
+        records = fetch_cashflow_records(CashflowSession())
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["id"], "internal:p2p-to-trading")
+        self.assertEqual(records[0]["kind"], "deposit")
+        self.assertEqual(records[0]["amount"], Decimal("1000"))
+        self.assertEqual(records[1]["kind"], "withdrawal")
+
     def test_spot_execution(self):
         item = normalize(
             {

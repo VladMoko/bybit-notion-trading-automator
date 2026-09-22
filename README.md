@@ -15,7 +15,8 @@ A Python automation project that synchronizes executed Bybit spot orders with a 
 - Creates a completed-cycle summary in Notion.
 - Links all journal operations to their cycle.
 - Creates or updates the corresponding weekly report.
-- Imports new confirmed USDT deposits and withdrawals without duplicating history.
+- Imports confirmed USDT deposits and withdrawals without duplicating history.
+- Treats Funding → Unified transfers as owner contributions and Unified → Funding transfers as withdrawals, including P2P-funded capital.
 - Updates dashboard values for contributions, realized profit, balance, and ROI.
 - Runs unattended with Windows Task Scheduler.
 
@@ -34,7 +35,7 @@ flowchart TD
 
 ## Safety design
 
-- The Bybit key should be **read-only**.
+- The Bybit key should be **read-only**, with Unified Trading Account and Assets access enabled.
 - The service never creates, changes, or cancels orders.
 - `.env` and `state.json` are excluded from Git.
 - Historical trades and cash movements are checkpointed on first launch unless explicit history import is enabled.
@@ -103,7 +104,7 @@ Property names in `sync.py` are Ukrainian because the original production worksp
 python -m unittest -v
 ```
 
-The included tests cover execution normalization and a complete weighted-average buy/sell cycle with fees.
+The included tests cover execution normalization, a complete weighted-average buy/sell cycle with fees, and Funding ↔ Unified cash-flow classification.
 
 ## Windows Task Scheduler
 
@@ -118,4 +119,3 @@ Schedule it at a suitable interval, such as every five minutes. The computer mus
 ## Portfolio summary
 
 This project demonstrates API integration, financial workflow modeling, idempotent synchronization, state management, data transformation, relational Notion design, automated reporting, and scheduled background execution.
-
