@@ -155,7 +155,10 @@ def account_execution(item: Execution, state: dict[str, Any]) -> AccountedExecut
     fee = Decimal(item.fee)
     base_asset = item.symbol.upper().removesuffix("USDT")
     cycle = int(state["current_cycle"])
-    tolerance = Decimal(os.getenv("POSITION_TOLERANCE", "0.000001"))
+    # Bybit can round a full-position spot SELL a few millionths above the
+    # quantity received after BUY fees. Treat that exchange-sized difference
+    # as a fully closed position instead of blocking the cycle as oversold.
+    tolerance = Decimal(os.getenv("POSITION_TOLERANCE", "0.00001"))
 
     if item.side.lower() == "buy":
         received_qty = trade_qty - fee if item.fee_currency.upper() == base_asset else trade_qty
