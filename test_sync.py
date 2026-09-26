@@ -100,6 +100,25 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(sold.position_qty_after, Decimal("0"))
         self.assertEqual(sold.profit_usdt, Decimal("97.8011"))
 
+    def test_full_sell_allows_bybit_quantity_rounding(self):
+        state = {
+            "current_cycle": 7,
+            "position_qty": "25.478496",
+            "position_cost_usdt": "2994.1696",
+        }
+        sell = Execution(
+            "s-rounded", "o-rounded", "SOLUSDT", "Sell", "117.5",
+            "25.4785", "2993.72375", "2.99372375", "USDT", "0.001",
+            True, "2026-09-25T09:02:34.429000+00:00",
+        )
+
+        sold = account_execution(sell, state)
+
+        self.assertEqual(sold.status, "CLOSED")
+        self.assertEqual(sold.position_qty_after, Decimal("0"))
+        self.assertEqual(sold.position_cost_after, Decimal("0"))
+        self.assertLess(sold.profit_usdt, Decimal("0"))
+
 
 if __name__ == "__main__":
     unittest.main()
